@@ -30,8 +30,11 @@ def error(msg, usage = False):
         print_usage(sys.argv)
     sys.exit(1)
 
-def warning(msg):
-    print 'warning: %s' % msg
+def warning(msg, fname = True):
+    if fname:
+        print '%s: warning: %s' % (_ifile, msg)
+    else:
+        print 'warning: %s' % msg
 
 def process_options(argv):
     """process command line options"""
@@ -139,11 +142,43 @@ class font:
                 ec = code
         return ec
 
-    def calc_capital_a_height(self):
-        """return the height of the 'A' glyph"""
-        if self.glyphs.has_key(ord('A')):
-            return self.glyphs[ord('A')][1]
+    def glyph_ascent(self, code):
+        """return the ascent of the glyph"""
+        if self.glyphs.has_key(code) and self.glyphs[code]:
+            (width, height, xofs, yofs, dwidth, data) = self.glyphs[code]
+            return height + yofs
         return 0
+
+    def glyph_descent(self, code):
+        """return the descent of the glyph"""
+        if self.glyphs.has_key(code) and self.glyphs[code]:
+            (width, height, xofs, yofs, dwidth, data) = self.glyphs[code]
+            return yofs
+        return 0
+
+    def calc_capital_a_height(self):
+        """Ascent will be the ascent of "A" or "1" of the current font"""
+        return max(self.glyph_ascent(ord('A')), self.glyph_ascent(ord('1')))
+
+    def calc_lower_g_descent(self):
+        """Descent will be the descent "g" of the current font"""
+        return self.glyph_descent(ord('g'))
+
+    def calc_font_x_ascent(self):
+        """Ascent will be the largest ascent of "A", "1" or "(" of the current font"""
+        return max(self.glyph_ascent(ord('A')), self.glyph_ascent(ord('1')), self.glyph_ascent(ord('(')))
+
+    def calc_font_x_descent(self):
+        """Descent will be the descent of "g" or "(" of the current font"""
+        return min(self.glyph_descent(ord('g')), self.glyph_descent(ord('(')))
+
+    def calc_font_ascent(self):
+        """Ascent will be the highest ascent of all glyphs of the current font"""
+        return max([self.glyph_ascent(code) for code in self.glyphs.keys()])
+
+    def calc_font_descent(self):
+        """Descent will be the highest descent of all glyphs of the current font"""
+        return min([self.glyph_descent(code) for code in self.glyphs.keys()])
 
     def __str__(self):
 
@@ -151,7 +186,7 @@ class font:
             self.name = 'u8g_font'
 
         if not hasattr(self, 'glyphs'):
-            self.glyphs = {}
+            error('no glyphs defined')
 
         if hasattr(self, 'start_code'):
             if self.start_code != self.calc_start_code():
@@ -167,9 +202,40 @@ class font:
 
         if hasattr(self, 'capital_a_height'):
             if self.capital_a_height != self.calc_capital_a_height():
-                warning('capital_a_height does match the \'A\' glyph')
+                warning('capital_a_height does match glyphs')
         else:
             self.capital_a_height = self.calc_capital_a_height()
+
+        if hasattr(self, 'lower_g_descent'):
+            if self.lower_g_descent != self.calc_lower_g_descent():
+                warning('lower_g_descent does match glyphs')
+        else:
+            self.lower_g_descent = self.calc_lower_g_descent()
+
+        if hasattr(self, 'font_x_ascent'):
+            if self.font_x_ascent != self.calc_font_x_ascent():
+                warning('font_x_ascent does match glyphs')
+        else:
+            self.font_x_ascent = self.calc_font_x_ascent()
+
+        if hasattr(self, 'font_x_descent'):
+            if self.font_x_descent != self.calc_font_x_descent():
+                warning('font_x_descent does match glyphs')
+        else:
+            self.font_x_descent = self.calc_font_x_descent()
+
+        if hasattr(self, 'font_ascent'):
+            if self.font_ascent != self.calc_font_ascent():
+                warning('font_ascent does match glyphs')
+        else:
+            self.font_ascent = self.calc_font_ascent()
+
+        if hasattr(self, 'font_descent'):
+            if self.font_descent != self.calc_font_descent():
+                warning('font_descent does match glyphs')
+        else:
+            self.font_descent = self.calc_font_descent()
+
 
         if not hasattr(self, 'fmt'):
             self.fmt = 0
@@ -181,16 +247,8 @@ class font:
             self.bb_xofs = 0
         if not hasattr(self, 'bb_yofs'):
             self.bb_yofs = 0
-        if not hasattr(self, 'lower_g_descent'):
-            self.lower_g_descent = 0
-        if not hasattr(self, 'font_ascent'):
-            self.font_ascent = 0
-        if not hasattr(self, 'font_descent'):
-            self.font_descent = 0
-        if not hasattr(self, 'font_x_ascent'):
-            self.font_x_ascent = 0
-        if not hasattr(self, 'font_x_descent'):
-            self.font_x_descent = 0
+
+
 
         glyph_data = []
         for code in xrange(self.start_code, self.end_code + 1):
@@ -208,7 +266,7 @@ class font:
                         error('code_97_ofs mismatch')
                 else:
                     self.code_97_ofs = _FONT_HDR_SIZE + len(glyph_data)
-
+            # encode the glyph
             glyph_data.extend(self.encode_glyph(code))
 
         data = self.encode_header()
