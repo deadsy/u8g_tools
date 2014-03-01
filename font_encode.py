@@ -5,6 +5,54 @@
 Take a font defined as python data structures - encode it as a u8g font
 
 """
+#------------------------------------------------------------------------------
+
+import getopt
+import sys
+import os
+
+#------------------------------------------------------------------------------
+
+_ifile = None
+_ofile = None
+
+#------------------------------------------------------------------------------
+
+def print_usage(argv):
+    print 'Usage: %s [options]' % argv[0]
+    print 'Options:'
+    print '%-18s%s' % ('-i <input_file>', 'input file')
+    print '%-18s%s' % ('-o <output_file>', 'output file')
+
+def error(msg, usage = False):
+    print 'error: %s' % msg
+    if usage:
+        print_usage(sys.argv)
+    sys.exit(1)
+
+def warning(msg):
+    print 'warning: %s' % msg
+
+def process_options(argv):
+    """process command line options"""
+    global _ifile, _ofile, _name
+    try:
+        (opts, args) = getopt.getopt(sys.argv[1:], "i:o:")
+    except getopt.GetoptError, err:
+        error(str(err), True)
+    if args:
+        error('invalid arguments on command line', True)
+    for (opt, val) in opts:
+        if opt == '-i':
+            _ifile = val
+        if opt == '-o':
+            _ofile = val
+
+    if not _ifile:
+        error('specify an input file', True)
+
+    if not _ofile:
+        _ofile =  '%s/%s.c' % (os.path.split(_ifile)[0], _name)
 
 #------------------------------------------------------------------------------
 
@@ -13,14 +61,9 @@ _FONT_HDR_SIZE = 17
 class font:
     def __init__(self, d):
         self.__dict__.update(d)
-        self.start_code = 0xffff
-        self.end_code = 0
-        self.code_65_ofs = 0
-        self.code_97_ofs = 0
-        self.capital_a_height = 0
 
-    def write_c_file(self):
-        f = open('%s.c' % self.name, 'w')
+    def write_c_file(self, fname):
+        f = open(fname, 'w')
         f.write(str(self))
         f.close()
 
@@ -45,35 +88,13 @@ class font:
         d.append(self.font_x_descent & 255) # 16
         return d
 
-    def encode_glyphs(self):
+    def encode_glyph(self, code):
         d = []
-        for g in self.glyphs:
-
-            # work out the start and end codes
-            code = g[0]
-            if code < self.start_code:
-                self.start_code = code
-            if code > self.end_code:
-                self.end_code = code
-
-            # check for 'A' and 'a' offsets
-            if code == ord('A'):
-                self.code_65_ofs = len(d) + _FONT_HDR_SIZE
-            if code == ord('a'):
-                self.code_97_ofs = len(d) + _FONT_HDR_SIZE
-
-            # check for no glyph data
-            if g[1] is None:
-                # no data for this glyph
-                d.append(255)
-                continue
-
-            (code, bb_width, bb_height, bb_xofs, bb_yofs, dwidth, data) = g
-
-            # get capital 'A' height
-            if code == ord('A'):
-                self.capital_a_height = bb_height
-
+        if (not self.glyphs.has_key(code)) or (self.glyphs[code] is None):
+            # no data for this glyph
+            d.append(255)
+        else:
+            (bb_width, bb_height, bb_xofs, bb_yofs, dwidth, data) = self.glyphs[code]
             # emit the glyph data
             if self.fmt in (0, 2):
                 # 6 byte headers
@@ -102,9 +123,94 @@ class font:
                 d.extend(list(data))
         return d
 
+    def calc_start_code(self):
+        """work out the start code"""
+        sc = 0xff
+        for code in self.glyphs.iterkeys():
+            if code < sc:
+                sc = code
+        return sc
+
+    def calc_end_code(self):
+        """work out the end code"""
+        ec = 0
+        for code in self.glyphs.iterkeys():
+            if code > ec:
+                ec = code
+        return ec
+
+    def calc_capital_a_height(self):
+        """return the height of the 'A' glyph"""
+        if self.glyphs.has_key(ord('A')):
+            return self.glyphs[ord('A')][1]
+        return 0
+
     def __str__(self):
 
-        glyph_data = self.encode_glyphs()
+        if not hasattr(self, 'name'):
+            self.name = 'u8g_font'
+
+        if not hasattr(self, 'glyphs'):
+            self.glyphs = {}
+
+        if hasattr(self, 'start_code'):
+            if self.start_code != self.calc_start_code():
+                error('start_code is not the lowest glyph code')
+        else:
+            self.start_code = self.calc_start_code()
+
+        if hasattr(self, 'end_code'):
+            if self.end_code != self.calc_end_code():
+                error('end_code is not the highest glyph code')
+        else:
+            self.end_code = self.calc_end_code()
+
+        if hasattr(self, 'capital_a_height'):
+            if self.capital_a_height != self.calc_capital_a_height():
+                warning('capital_a_height does match the \'A\' glyph')
+        else:
+            self.capital_a_height = self.calc_capital_a_height()
+
+        if not hasattr(self, 'fmt'):
+            self.fmt = 0
+        if not hasattr(self, 'bb_width'):
+            self.bb_width = 0
+        if not hasattr(self, 'bb_height'):
+            self.bb_height = 0
+        if not hasattr(self, 'bb_xofs'):
+            self.bb_xofs = 0
+        if not hasattr(self, 'bb_yofs'):
+            self.bb_yofs = 0
+        if not hasattr(self, 'lower_g_descent'):
+            self.lower_g_descent = 0
+        if not hasattr(self, 'font_ascent'):
+            self.font_ascent = 0
+        if not hasattr(self, 'font_descent'):
+            self.font_descent = 0
+        if not hasattr(self, 'font_x_ascent'):
+            self.font_x_ascent = 0
+        if not hasattr(self, 'font_x_descent'):
+            self.font_x_descent = 0
+
+        glyph_data = []
+        for code in xrange(self.start_code, self.end_code + 1):
+            # work out the 'A' offset
+            if code == ord('A'):
+                if hasattr(self, 'code_65_ofs'):
+                    if self.code_65_ofs != _FONT_HDR_SIZE + len(glyph_data):
+                        error('code_65_ofs mismatch')
+                else:
+                    self.code_65_ofs = _FONT_HDR_SIZE + len(glyph_data)
+            # work out the 'a' offset
+            if code == ord('a'):
+                if hasattr(self, 'code_97_ofs'):
+                    if self.code_97_ofs != _FONT_HDR_SIZE + len(glyph_data):
+                        error('code_97_ofs mismatch')
+                else:
+                    self.code_97_ofs = _FONT_HDR_SIZE + len(glyph_data)
+
+            glyph_data.extend(self.encode_glyph(code))
+
         data = self.encode_header()
         data.extend(glyph_data)
 
@@ -113,27 +219,29 @@ class font:
         s.append('const u8g_fntpgm_uint8_t %s[%d] U8G_FONT_SECTION("%s") = {\n' % (self.name, n, self.name))
         i = 0
         while n > 0:
-            s.append('    ')
+            s.append('  ')
             k = (n, 16)[n > 16]
+            ls = []
             for j in range(k):
-                s.append('%d,' % data[i])
+                ls.append('%d' % data[i])
                 i += 1
-            s.append('\n')
+            s.append(','.join(ls))
+            if k == 16:
+                s.append(',\n')
             n -= k
-        s.append('};\n')
+        s.append('};')
         return ''.join(s)
 
 #------------------------------------------------------------------------------
 
 def main():
-    #name = 'u8g_font_04b_03b'
-    #name = 'u8g_font_04b_03bn'
-    #name = 'u8g_font_tpssr'
-    #name = 'u8g_font_unifont'
-    name = 'nokia_large'
-    module = __import__(name)
+    process_options(sys.argv)
+    import_dir = os.path.split(_ifile)[0]
+    import_name = os.path.split(_ifile)[1].split('.')[0]
+    sys.path.append(import_dir)
+    module = __import__(import_name)
     f = font(module.font)
-    f.write_c_file()
+    f.write_c_file(_ofile)
 
 main()
 

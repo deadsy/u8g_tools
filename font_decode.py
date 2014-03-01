@@ -2,9 +2,21 @@
 #------------------------------------------------------------------------------
 """
 
-Decode a u8g font from a text file of the byte values
+Decode a u8g font from C code file of byte values
 
 """
+#------------------------------------------------------------------------------
+
+import getopt
+import sys
+import os
+
+#------------------------------------------------------------------------------
+
+_ifile = None
+_ofile = None
+_name = None
+
 #------------------------------------------------------------------------------
 
 def sex(x, n):
@@ -78,19 +90,17 @@ class glyph:
 
     def __str__(self):
         s = []
-        s.append('    (')
-        s.append('0x%02x,' % self.code)
+        s.append('    0x%02x:' % self.code)
         if self.hdr_size == 1:
-            s.append('None')
+            s.append(' None,')
         else:
-            s.append('%d,%d,' % (self.bb_width, self.bb_height))
+            s.append(' (%d,%d,' % (self.bb_width, self.bb_height))
             s.append('%d,%d,' % (self.bb_xofs, self.bb_yofs))
             s.append('%d,' % (self.dwidth))
             if self.data_size:
-                s.append('(%s,)' % ','.join(['0x%02x' % x for x in self.data]))
+                s.append('(%s,)),' % ','.join(['0x%02x' % x for x in self.data]))
             else:
-                s.append('None')
-        s.append('),')
+                s.append('None),')
         if self.code >= 0x20 and self.code <= 0x7e:
             s.append(' # \'%c\'' % chr(self.code))
         return ''.join(s)
@@ -103,15 +113,17 @@ class font:
     def __init__(self, name):
         self.name = name
 
-    def read_from_file(self):
-        f = open('%s.txt' % self.name)
+    def read_from_file(self, fname):
+        f = open(fname)
         data = f.read()
         f.close()
+        data = data.split('{')[1]
+        data = data.split('}')[0]
         data = data.split(',')
         self.data = [int(x.strip()) for x in data]
 
-    def write_py_file(self):
-        f = open('%s.py' % self.name, 'w')
+    def write_py_file(self, fname):
+        f = open(fname, 'w')
         f.write(str(self))
         f.close()
 
@@ -119,11 +131,11 @@ class font:
         s = []
         # output glyphs
         s.append('#  %s\n' % self.name)
-        s.append('# glyph tuples: (code, width, height, xofs, yofs, dwidth, data)')
-        s.append('glyphs = (')
+        s.append('glyphs = {')
+        s.append('    # code: (width, height, xofs, yofs, dwidth, data)')
         for g in self.glyphs:
             s.append(str(g))
-        s.append(')')
+        s.append('}')
         # output font header info
         s.append('font = {')
         s.append('    \'%s\': \'%s\',' % ('name', self.name))
@@ -133,11 +145,11 @@ class font:
         s.append('    \'%s\': %d,' % ('bb_height', self.bb_height))
         s.append('    \'%s\': %d,' % ('bb_xofs', self.bb_xofs))
         s.append('    \'%s\': %d,' % ('bb_yofs', self.bb_yofs))
-        #s.append('    \'%s\': %d,' % ('capital_a_height', self.capital_a_height))
-        #s.append('    \'%s\': %d,' % ('code_65_ofs', self.code_65_ofs))
-        #s.append('    \'%s\': %d,' % ('code_97_ofs', self.code_97_ofs))
-        #s.append('    \'%s\': 0x%02x,' % ('start_code', self.start_code))
-        #s.append('    \'%s\': 0x%02x,' % ('end_code', self.end_code))
+        s.append('    \'%s\': %d,' % ('capital_a_height', self.capital_a_height))
+        s.append('    \'%s\': %d,' % ('code_65_ofs', self.code_65_ofs))
+        s.append('    \'%s\': %d,' % ('code_97_ofs', self.code_97_ofs))
+        s.append('    \'%s\': 0x%02x,' % ('start_code', self.start_code))
+        s.append('    \'%s\': 0x%02x,' % ('end_code', self.end_code))
         s.append('    \'%s\': %d,' % ('lower_g_descent', self.lower_g_descent))
         s.append('    \'%s\': %d,' % ('font_ascent', self.font_ascent))
         s.append('    \'%s\': %d,' % ('font_descent', self.font_descent))
@@ -191,15 +203,53 @@ class font:
 
 #------------------------------------------------------------------------------
 
+def print_usage(argv):
+    print 'Usage: %s [options]' % argv[0]
+    print 'Options:'
+    print '%-18s%s' % ('-i <input_file>', 'input file')
+    print '%-18s%s' % ('-o <output_file>', 'output file')
+    print '%-18s%s' % ('-n <font_name>', 'font name')
+
+def error(msg, usage = False):
+    print 'error: %s' % msg
+    if usage:
+        print_usage(sys.argv)
+    sys.exit(1)
+
+def process_options(argv):
+    """process command line options"""
+    global _ifile, _ofile, _name
+    try:
+        (opts, args) = getopt.getopt(sys.argv[1:], "i:o:n:")
+    except getopt.GetoptError, err:
+        error(str(err), True)
+    if args:
+        error('invalid arguments on command line', True)
+    for (opt, val) in opts:
+        if opt == '-i':
+            _ifile = val
+        if opt == '-o':
+            _ofile = val
+        if opt == '-n':
+            _name = val
+
+    if not _ifile:
+        error('specify an input file', True)
+
+    if not _name:
+        _name =  os.path.split(_ifile)[1].split('.')[0]
+
+    if not _ofile:
+        _ofile =  '%s/%s.py' % (os.path.split(_ifile)[0], _name)
+
+#------------------------------------------------------------------------------
+
 def main():
-    name = 'u8g_font_04b_03b'
-    #name = 'u8g_font_04b_03bn'
-    #name = 'u8g_font_tpssr'
-    #name = 'u8g_font_unifont'
-    f = font(name)
-    f.read_from_file()
+    process_options(sys.argv)
+    f = font(_name)
+    f.read_from_file(_ifile)
     f.decode()
-    f.write_py_file()
+    f.write_py_file(_ofile)
 
 main()
 
