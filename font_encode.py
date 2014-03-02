@@ -55,7 +55,8 @@ def process_options(argv):
         error('specify an input file', True)
 
     if not _ofile:
-        _ofile =  '%s/%s.c' % (os.path.split(_ifile)[0], _name)
+        name =  os.path.split(_ifile)[1].split('.')[0]
+        _ofile =  '%s/%s.c' % (os.path.split(_ifile)[0], name)
 
 #------------------------------------------------------------------------------
 
